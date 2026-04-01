@@ -13,6 +13,19 @@ from .session_store import StoredSession, load_session, save_session
 from .tools import build_tool_backlog
 from .transcript import TranscriptStore
 
+from .real_tools import (
+    dispatch_tool,
+    read_file,
+    run_bash,
+    edit_file,
+    list_dir,
+    FileReadResult,
+    BashResult,
+    FileEditResult,
+    ListDirResult,
+    TOOL_LOOP_LIMIT,
+)
+
 OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "qwen2.5-coder:3b"
 
@@ -24,6 +37,7 @@ You have access to four tools. Use them by responding with ONLY a single JSON
 object on one line — no explanation before or after the JSON when calling a tool.
 
 {"tool": "FileReadTool", "path": "path/to/file.py"}
+{"tool": "FileReadTool", "path": "path/to/file.py", "start_line": 1, "end_line": 50}
 {"tool": "BashTool", "command": "python --version", "cwd": "optional/path"}
 {"tool": "FileEditTool", "path": "file.py", "old_content": "exact text to find", "new_content": "replacement text"}
 {"tool": "ListDirTool", "path": ".", "max_entries": 80}
@@ -34,6 +48,7 @@ Rules:
 - Use BashTool to run, test, or diagnose — never guess what a command will output.
 - Only edit files when the user explicitly asks for changes.
 - Always read a file before editing it.
+- For large files, read in sections using start_line and end_line rather than the whole file at once.
 - After a tool returns results, explain what you found in plain language.
 - Be precise. One problem, one fix. Not ten possibilities.
 - You run fully offline on the developer's machine. That is a feature, not a limitation.
@@ -87,6 +102,9 @@ class QueryEnginePort:
         )
 
     def _call_ollama(self, prompt: str) -> tuple[str, int, int]:
+        import re as _re
+        import json as _json
+
         messages = [{"role": "system", "content": ROZN_SYSTEM_PROMPT}]
 
         for msg in self.mutable_messages[-6:]:
@@ -94,35 +112,90 @@ class QueryEnginePort:
 
         messages.append({"role": "user", "content": prompt})
 
+        total_input_tokens  = 0
+        total_output_tokens = 0
+        content             = ""
+
+        for attempt in range(TOOL_LOOP_LIMIT):
+            try:
+                response = requests.post(
+                    OLLAMA_URL,
+                    json={
+                        "model": OLLAMA_MODEL,
+                        "messages": messages,
+                        "stream": False,
+                    },
+                    timeout=300,
+                )
+                response.raise_for_status()
+                data    = response.json()
+                content = data["message"]["content"].strip()
+                total_input_tokens  += data.get("prompt_eval_count", len(prompt.split()))
+                total_output_tokens += data.get("eval_count", len(content.split()))
+
+            except requests.exceptions.ConnectionError:
+                return "Rozn cannot reach Ollama. Make sure Ollama is running on port 11434.", 0, 0
+            except requests.exceptions.Timeout:
+                return "Rozn timed out waiting for the model. The prompt may be too long.", 0, 0
+            except Exception as exc:
+                return f"Rozn encountered an unexpected error: {exc}", 0, 0
+
+
+            # ── tool detection ─────────────────────────────────────────────────────
+
+            cleaned = content.strip()
+
+            # strip markdown fences if model wrapped JSON in them
+            fence_match = _re.search(r'```(?:json)?\s*(\{.*?\})\s*```', cleaned, _re.DOTALL)
+            if fence_match:
+                cleaned = fence_match.group(1).strip()
+
+            # some models prefix with a line of text before the JSON — grab last { block
+            if not cleaned.startswith("{") and "{" in cleaned:
+                cleaned = cleaned[cleaned.rfind("{"):]
+
+            if cleaned.startswith("{") and '"tool"' in cleaned:
+                try:
+                    tool_payload = _json.loads(cleaned)
+                    tool_name    = tool_payload.pop("tool", "")
+                    tool_result  = dispatch_tool(tool_name, tool_payload)
+
+                    # feed tool result back into conversation
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({
+                        "role": "user",
+                        "content": f"Tool result for {tool_name}:\n{tool_result}\n\nNow answer the user's original question using this information."
+                    })
+                    continue
+
+                except _json.JSONDecodeError as e:
+                    print(f"[debug] JSON parse failed: {e}", file=sys.stderr)
+
+            # no tool call detected — this is the final answer
+            return content, total_input_tokens, total_output_tokens
+
+        # hit loop limit — force a final plain language answer
+        messages.append({"role": "assistant", "content": content})
+        messages.append({
+            "role": "user",
+            "content": "Please summarise what you found and answer the original question in plain language. Do not call any more tools."
+        })
+
         try:
             response = requests.post(
                 OLLAMA_URL,
-                json={
-                    "model": OLLAMA_MODEL,
-                    "messages": messages,
-                    "stream": False,
-                },
-                timeout=120,
+                json={"model": OLLAMA_MODEL, "messages": messages, "stream": False},
+                timeout=300,
             )
             response.raise_for_status()
             data = response.json()
-            content = data["message"]["content"]
-            input_tokens = data.get("prompt_eval_count", len(prompt.split()))
-            output_tokens = data.get("eval_count", len(content.split()))
-            return content, input_tokens, output_tokens
+            final = data["message"]["content"].strip()
+            total_input_tokens  += data.get("prompt_eval_count", 0)
+            total_output_tokens += data.get("eval_count", 0)
+            return final, total_input_tokens, total_output_tokens
 
-        except requests.exceptions.ConnectionError:
-            return (
-                "Rozn cannot reach Ollama. Make sure Ollama is running on port 11434.",
-                0, 0,
-            )
-        except requests.exceptions.Timeout:
-            return (
-                "Rozn timed out waiting for the model. The prompt may be too long.",
-                0, 0,
-            )
-        except Exception as exc:
-            return f"Rozn encountered an unexpected error: {exc}", 0, 0
+        except Exception:
+            return content, total_input_tokens, total_output_tokens
 
     def submit_message(
         self,
@@ -200,7 +273,7 @@ class QueryEnginePort:
                     "stream": True,
                 },
                 stream=True,
-                timeout=120,
+                timeout=300,
             )
             response.raise_for_status()
 

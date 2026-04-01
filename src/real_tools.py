@@ -48,7 +48,7 @@ class FileEditResult:
 
 # ── FileReadTool ──────────────────────────────────────────────────────────────
 
-def read_file(path: str) -> FileReadResult:
+def read_file(path: str, start_line: int = 0, end_line: int = 0) -> FileReadResult:
     try:
         p = Path(path).resolve()
 
@@ -69,16 +69,29 @@ def read_file(path: str) -> FileReadResult:
                 path=path, content="", success=False,
                 error=(
                     f"file too large ({size} bytes, limit is {MAX_FILE_BYTES}). "
-                    f"ask rozn to read a specific line range instead."
+                    f"use start_line and end_line to read a specific section."
                 )
             )
 
-        content = p.read_text(encoding="utf-8", errors="replace")
+        all_lines = p.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+        total_lines = len(all_lines)
+
+        # apply line range if requested
+        if start_line > 0 or end_line > 0:
+            s = max(0, start_line - 1)
+            e = end_line if end_line > 0 else total_lines
+            selected = all_lines[s:e]
+            content = "".join(selected)
+            note = f"[showing lines {s+1}–{min(e, total_lines)} of {total_lines}]\n"
+            content = note + content
+        else:
+            content = "".join(all_lines)
+
         return FileReadResult(
             path=str(p),
             content=content,
             success=True,
-            line_count=content.count("\n") + 1,
+            line_count=total_lines,
             size_bytes=size,
         )
 
@@ -173,11 +186,7 @@ def run_bash(
 
 # ── FileEditTool ──────────────────────────────────────────────────────────────
 
-def edit_file(
-    path: str,
-    old_content: str,
-    new_content: str,
-) -> FileEditResult:
+def edit_file(path: str, old_content: str, new_content: str) -> FileEditResult:
     try:
         p = Path(path).resolve()
 
@@ -190,16 +199,24 @@ def edit_file(
 
         current = p.read_text(encoding="utf-8", errors="replace")
 
+        # try exact match first, then strip-normalised match
         if old_content not in current:
-            return FileEditResult(
-                path=path, original=current, updated="",
-                diff="", success=False,
-                error=(
-                    "could not find the specified text in the file. "
-                    "the file may have changed since rozn last read it. "
-                    "ask rozn to re-read the file before editing."
+            stripped_old = old_content.strip()
+            stripped_cur = current.strip()
+            if stripped_old in current:
+                old_content = stripped_old
+            elif old_content.rstrip() in current:
+                old_content = old_content.rstrip()
+            else:
+                return FileEditResult(
+                    path=path, original=current, updated="",
+                    diff="", success=False,
+                    error=(
+                        "could not find the specified text in the file. "
+                        "the file may have changed since rozn last read it. "
+                        "ask rozn to re-read the file before editing."
+                    )
                 )
-            )
 
         updated = current.replace(old_content, new_content, 1)
 
@@ -211,7 +228,6 @@ def edit_file(
             lineterm="",
         ))
         diff = "".join(diff_lines)
-
         p.write_text(updated, encoding="utf-8")
 
         return FileEditResult(
@@ -252,10 +268,10 @@ def list_dir(path: str = ".", max_entries: int = 80) -> ListDirResult:
 
         if not p.exists():
             return ListDirResult(path=path, entries=(), success=False,
-                                 error=f"path not found: {path}")
+                                error=f"path not found: {path}")
         if not p.is_dir():
             return ListDirResult(path=path, entries=(), success=False,
-                                 error=f"not a directory: {path}")
+                                error=f"not a directory: {path}")
 
         entries = sorted(p.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
         lines = []
@@ -274,25 +290,29 @@ def list_dir(path: str = ".", max_entries: int = 80) -> ListDirResult:
 
     except PermissionError:
         return ListDirResult(path=path, entries=(), success=False,
-                             error=f"permission denied: {path}")
+                            error=f"permission denied: {path}")
     except Exception as exc:
         return ListDirResult(path=path, entries=(), success=False,
-                             error=str(exc))
+                            error=str(exc))
 
 
 # ── central dispatcher — called from query_engine._call_ollama ────────────────
 
 def dispatch_tool(tool_name: str, payload: dict) -> str:
     if tool_name == "FileReadTool":
-        result = read_file(payload.get("path", ""))
-        if not result.success:
-            return f"FileReadTool error: {result.error}"
-        return (
-            f"file: {result.path}\n"
-            f"lines: {result.line_count}   size: {result.size_bytes} bytes\n"
-            f"{'─' * 40}\n"
-            f"{result.content}"
-        )
+    result = read_file(
+        payload.get("path", ""),
+        start_line=int(payload.get("start_line", 0)),
+        end_line=int(payload.get("end_line", 0)),
+    )
+    if not result.success:
+        return f"FileReadTool error: {result.error}"
+    return (
+        f"file: {result.path}\n"
+        f"lines: {result.line_count}   size: {result.size_bytes} bytes\n"
+        f"{'─' * 40}\n"
+        f"{result.content}"
+    )
 
     if tool_name == "BashTool":
         result = run_bash(
