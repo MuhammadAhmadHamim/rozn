@@ -300,11 +300,11 @@ def list_dir(path: str = ".", max_entries: int = 80) -> ListDirResult:
 
 def dispatch_tool(tool_name: str, payload: dict) -> str:
     if tool_name == "FileReadTool":
-    result = read_file(
-        payload.get("path", ""),
-        start_line=int(payload.get("start_line", 0)),
-        end_line=int(payload.get("end_line", 0)),
-    )
+        result = read_file(
+            payload.get("path", ""),
+            start_line=int(payload.get("start_line", 0)),
+            end_line=int(payload.get("end_line", 0)),
+        )
     if not result.success:
         return f"FileReadTool error: {result.error}"
     return (
