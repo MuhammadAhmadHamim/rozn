@@ -25,6 +25,7 @@ from .session_store import load_session
 from .setup import run_setup
 from .tool_pool import assemble_tool_pool
 from .tools import execute_tool, get_tool, get_tools, render_tool_index
+from pathlib import Path
 
 # ── Rozn colour palette ────────────────────────────────────────────────────────
 ROZN_AMBER  = "#c8922a"   # rozn speaks — used nowhere else
@@ -113,6 +114,41 @@ def print_status(engine: QueryEnginePort) -> None:
     console.print("  " + "  ·  ".join(parts))
     console.print()
 
+def build_startup_context(engine: QueryEnginePort) -> None:
+    from .real_tools import list_dir, read_file
+
+    console.print(f"[{DIM_GRAY}]rozn is mapping your project...[/{DIM_GRAY}]")
+
+    dir_result = list_dir(".", max_entries=80)
+    if not dir_result.success:
+        return
+
+    context_lines = [
+        "Project structure at session start:",
+        f"Root: {dir_result.path}",
+        "",
+        "\n".join(dir_result.entries),
+    ]
+
+    for fname in ("README.md", "pyproject.toml", "requirements.txt"):
+        p = Path(fname)
+        if p.exists() and p.stat().st_size < 4000:
+            result = read_file(fname)
+            if result.success:
+                context_lines.append(f"\n{fname}:\n{result.content}")
+
+    context_summary = "\n".join(context_lines)
+
+    engine.mutable_messages.append({
+        "role": "user",
+        "content": f"[project context — loaded automatically at session start]\n{context_summary}"
+    })
+    engine.mutable_messages.append({
+        "role": "assistant",
+        "content": "Project context loaded. I can see your directory structure and key files. Ready."
+    })
+
+    console.print(f"[{DIM_GRAY}]project mapped. ready.[/{DIM_GRAY}]\n")
 
 def run_chat(session_id: str | None = None) -> int:
     print_banner()
@@ -123,6 +159,7 @@ def run_chat(session_id: str | None = None) -> int:
             console.print(
                 f"[{DIM_GRAY}]session restored → {session_id}[/{DIM_GRAY}]\n"
             )
+            build_startup_context(engine)
         except Exception:
             console.print(
                 f"[{ERR_RED}]could not load session {session_id} — starting fresh[/{ERR_RED}]\n"
@@ -130,6 +167,7 @@ def run_chat(session_id: str | None = None) -> int:
             engine = QueryEnginePort.from_workspace()
     else:
         engine = QueryEnginePort.from_workspace()
+        build_startup_context(engine)
 
     console.print(
         f"[{DIM_GRAY}]type your question or paste code. "
