@@ -150,7 +150,7 @@ def run_chat(session_id: str | None = None) -> int:
             console.print(
                 f"[{DIM_GRAY}]session restored → {session_id}[/{DIM_GRAY}]\n"
             )
-            build_startup_context(engine)
+            # build_startup_context(engine)
         except Exception:
             console.print(
                 f"[{ERR_RED}]could not load session {session_id} — starting fresh[/{ERR_RED}]\n"
@@ -158,7 +158,7 @@ def run_chat(session_id: str | None = None) -> int:
             engine = QueryEnginePort.from_workspace()
     else:
         engine = QueryEnginePort.from_workspace()
-        build_startup_context(engine)
+        # build_startup_context(engine)
 
     console.print(
         f"[{DIM_GRAY}]type your question or paste code. "
