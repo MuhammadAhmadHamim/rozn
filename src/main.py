@@ -62,7 +62,7 @@ BANNER_ART = f"""\
 [bold {ROZN_AMBER}]  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝[/bold {ROZN_AMBER}]\
 """
 
-BANNER_URDU = f"[{DIM_GRAY}]  rozn— the crack of light in your code[/{DIM_GRAY}]"
+BANNER_URDU = f"[{DIM_GRAY}]  rozn — the crack of light in your code[/{DIM_GRAY}]"
 BANNER_SUB  = f"[{DIM_GRAY}]  offline · local · yours[/{DIM_GRAY}]"
 
 # ── Help text shown on first launch ───────────────────────────────────────────
@@ -115,37 +115,28 @@ def print_status(engine: QueryEnginePort) -> None:
     console.print()
 
 def build_startup_context(engine: QueryEnginePort) -> None:
-    from .real_tools import list_dir, read_file
+    from .real_tools import list_dir
 
     console.print(f"[{DIM_GRAY}]rozn is mapping your project...[/{DIM_GRAY}]")
 
-    dir_result = list_dir(".", max_entries=80)
+    dir_result = list_dir(".", max_entries=40)
     if not dir_result.success:
         return
 
     context_lines = [
         "Project structure at session start:",
-        f"Root: {dir_result.path}",
-        "",
         "\n".join(dir_result.entries),
     ]
-
-    for fname in ("README.md", "pyproject.toml", "requirements.txt"):
-        p = Path(fname)
-        if p.exists() and p.stat().st_size < 4000:
-            result = read_file(fname)
-            if result.success:
-                context_lines.append(f"\n{fname}:\n{result.content}")
 
     context_summary = "\n".join(context_lines)
 
     engine.mutable_messages.append({
         "role": "user",
-        "content": f"[project context — loaded automatically at session start]\n{context_summary}"
+        "content": f"[project context]\n{context_summary}"
     })
     engine.mutable_messages.append({
         "role": "assistant",
-        "content": "Project context loaded. I can see your directory structure and key files. Ready."
+        "content": "Project mapped. Ready."
     })
 
     console.print(f"[{DIM_GRAY}]project mapped. ready.[/{DIM_GRAY}]\n")

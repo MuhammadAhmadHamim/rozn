@@ -354,7 +354,7 @@ class QueryEnginePort:
 
         try:
             messages = [{"role": "system", "content": ROZN_SYSTEM_PROMPT}]
-            for msg in self.mutable_messages[-6:]:
+            for msg in self.mutable_messages[-4:]:
                 messages.append(msg)
             messages.append({"role": "user", "content": prompt})
 
