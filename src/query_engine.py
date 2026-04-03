@@ -174,6 +174,7 @@ class QueryEnginePort:
     config: QueryEngineConfig = field(default_factory=QueryEngineConfig)
     session_id: str = field(default_factory=lambda: uuid4().hex)
     mutable_messages: list[dict] = field(default_factory=list)
+    session_memory: list[str] = field(default_factory=list)
     permission_denials: list[PermissionDenial] = field(default_factory=list)
     total_usage: UsageSummary = field(default_factory=UsageSummary)
     transcript_store: TranscriptStore = field(default_factory=TranscriptStore)
@@ -194,13 +195,30 @@ class QueryEnginePort:
             transcript_store=transcript,
         )
 
+    def _compress_turn(self, prompt: str, output: str) -> str:
+        prompt_short = prompt[:50].replace("\n", " ").strip()
+        output_short = output[:80].replace("\n", " ").strip()
+        return f"t{len(self.session_memory)+1}: {prompt_short} → {output_short}"
+
     def _call_ollama(self, prompt: str) -> tuple[str, int, int]:
         import re as _re
         import json as _json
 
         messages = [{"role": "system", "content": ROZN_SYSTEM_PROMPT}]
 
-        for msg in self.mutable_messages[-6:]:
+        # inject compressed memory if we have any
+        if self.session_memory:
+            memory_block = "\n".join(self.session_memory[-2:])
+            messages.append({
+                "role": "user",
+                "content": f"[session memory]\n{memory_block}"
+            })
+            messages.append({
+                "role": "assistant",
+                "content": "Understood."
+            })
+
+        for msg in self.mutable_messages[-2:]:
             messages.append(msg)
 
         messages.append({"role": "user", "content": prompt})
@@ -310,7 +328,8 @@ class QueryEnginePort:
             )
 
         output, input_tokens, output_tokens = self._call_ollama(prompt)
-
+        
+        self.session_memory.append(self._compress_turn(prompt, output))
         self.mutable_messages.append({"role": "user", "content": prompt})
         self.mutable_messages.append({"role": "assistant", "content": output})
         self.transcript_store.append(prompt)

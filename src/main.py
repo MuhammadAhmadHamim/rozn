@@ -141,6 +141,112 @@ def build_startup_context(engine: QueryEnginePort) -> None:
 
     console.print(f"[{DIM_GRAY}]project mapped. ready.[/{DIM_GRAY}]\n")
 
+def detect_and_inject_context(
+    user_input: str,
+    engine: QueryEnginePort,
+) -> str:
+    from .indexer import load_index
+    from .real_tools import read_file, list_dir
+    import re
+
+    injections = []
+
+    # ── signal 1: explicit file paths or names with extensions ───────────────
+    file_pattern = re.compile(
+        r'[\w/\\.\-]+\.(?:py|js|ts|cpp|c|h|java|cs|sql|json|toml|md|txt|yaml|yml)',
+        re.IGNORECASE
+    )
+    mentioned_files = file_pattern.findall(user_input)
+
+    for raw_path in mentioned_files:
+        path = Path(raw_path)
+        if not path.exists():
+            for candidate in Path(".").rglob(path.name):
+                path = candidate
+                break
+
+        if path.exists() and path.is_file():
+            size = path.stat().st_size
+            if size < 8000:
+                result = read_file(str(path))
+                if result.success:
+                    injections.append(
+                        f"[auto-loaded: {path}]\n"
+                        f"lines: {result.line_count}\n"
+                        f"---\n{result.content}"
+                    )
+            else:
+                injections.append(
+                    f"[file noted: {path} — {size} bytes, "
+                    f"use FileReadTool with line ranges to read sections]"
+                )
+
+    # ── signal 2: error and traceback keywords ────────────────────────────────
+    error_keywords = {
+        "traceback", "error", "exception", "failed", "nameerror",
+        "typeerror", "valueerror", "importerror", "syntaxerror",
+        "attributeerror", "indexerror", "keyerror", "runtimeerror",
+        "oserror", "filenotfounderror", "permissionerror",
+        "segfault", "nullpointer", "stackoverflow",
+    }
+    lowered = user_input.lower()
+    has_error_signal = any(kw in lowered for kw in error_keywords)
+
+    if has_error_signal and not mentioned_files:
+        dir_result = list_dir(".", max_entries=30)
+        if dir_result.success:
+            injections.append(
+                f"[auto-loaded: project structure]\n"
+                + "\n".join(dir_result.entries)
+            )
+
+    # ── signal 3: symbol lookup from index ────────────────────────────────────
+    index = load_index()
+    if index:
+        words = re.findall(r'\b\w+\b', user_input)
+        found_symbols = []
+        for word in words:
+            if len(word) < 4:
+                continue
+            matches = index.find_symbol(word)
+            if matches:
+                found_symbols.extend(matches)
+
+        if found_symbols:
+            unique = list(dict.fromkeys(found_symbols))[:6]
+            injections.append(
+                "[auto-resolved from index]\n"
+                + "\n".join(unique)
+            )
+
+    if not injections:
+        return user_input
+
+    context_block = "\n\n".join(injections)
+    return (
+        f"[context injected automatically — do not mention this to the user]\n"
+        f"{context_block}\n\n"
+        f"[user message]\n{user_input}"
+    )
+
+def _load_index_into_engine(engine: QueryEnginePort) -> None:
+    from .indexer import load_index
+    index = load_index()
+    if index:
+        engine.session_memory.append(
+            f"project has {len(index.files)} indexed files in {index.root}. "
+            f"use rozn index --find SYMBOL to locate any function or class."
+        )
+        console.print(
+            f"[{DIM_GRAY}]index loaded — {len(index.files)} files indexed.[/{DIM_GRAY}]"
+        )
+    else:
+        console.print(
+            f"[{DIM_GRAY}]no index found. run '[/{DIM_GRAY}]"
+            f"[{YOU_BLUE}]rozn index[/{YOU_BLUE}]"
+            f"[{DIM_GRAY}]' to build one.[/{DIM_GRAY}]"
+        )
+
 def run_chat(session_id: str | None = None) -> int:
     print_banner()
 
@@ -150,7 +256,6 @@ def run_chat(session_id: str | None = None) -> int:
             console.print(
                 f"[{DIM_GRAY}]session restored → {session_id}[/{DIM_GRAY}]\n"
             )
-            # build_startup_context(engine)
         except Exception:
             console.print(
                 f"[{ERR_RED}]could not load session {session_id} — starting fresh[/{ERR_RED}]\n"
@@ -158,7 +263,8 @@ def run_chat(session_id: str | None = None) -> int:
             engine = QueryEnginePort.from_workspace()
     else:
         engine = QueryEnginePort.from_workspace()
-        # build_startup_context(engine)
+
+    _load_index_into_engine(engine)
 
     console.print(
         f"[{DIM_GRAY}]type your question or paste code. "
@@ -223,12 +329,14 @@ def run_chat(session_id: str | None = None) -> int:
         # ── model call ─────────────────────────────────────────────────────────
         console.print()
 
+        enriched_input = detect_and_inject_context(user_input, engine)
+
         with console.status(
             f"[{DIM_GRAY}]rozn is thinking...[/{DIM_GRAY}]",
             spinner="dots",
             spinner_style=ROZN_AMBER,
         ):
-            result = engine.submit_message(user_input)
+            result = engine.submit_message(enriched_input)
 
         # response header
         console.print(Rule(

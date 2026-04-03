@@ -14,6 +14,8 @@ class FileIndex:
     classes: tuple[str, ...]
     functions: tuple[str, ...]
     imports: tuple[str, ...]
+    class_lines: tuple[int, ...] = ()
+    function_lines: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -40,7 +42,9 @@ class ProjectIndex:
                 {
                     "path": f.path,
                     "classes": list(f.classes),
+                    "class_lines": list(f.class_lines),
                     "functions": list(f.functions),
+                    "function_lines": list(f.function_lines),
                     "imports": list(f.imports),
                 }
                 for f in self.files
@@ -51,12 +55,12 @@ class ProjectIndex:
         results = []
         needle = name.lower()
         for f in self.files:
-            for cls in f.classes:
+            for cls, line in zip(f.classes, f.class_lines):
                 if needle in cls.lower():
-                    results.append(f"{f.path} → class {cls}")
-            for fn in f.functions:
+                    results.append(f"{f.path}:{line} → class {cls}")
+            for fn, line in zip(f.functions, f.function_lines):
                 if needle in fn.lower():
-                    results.append(f"{f.path} → def {fn}")
+                    results.append(f"{f.path}:{line} → def {fn}")
         return results
 
     def summary_for_model(self) -> str:
@@ -102,17 +106,20 @@ def scan_file(path: Path, root: Path) -> FileIndex | None:
     except Exception:
         return None
 
-    classes   = []
-    functions = []
-    imports   = []
+    classes        = []
+    class_lines    = []
+    functions      = []
+    function_lines = []
+    imports        = []
 
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
             classes.append(node.name)
+            class_lines.append(node.lineno)
         elif isinstance(node, ast.FunctionDef):
-            # skip private dunders except __init__
             if not node.name.startswith("__") or node.name == "__init__":
                 functions.append(node.name)
+                function_lines.append(node.lineno)
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 imports.append(alias.name)
@@ -124,7 +131,9 @@ def scan_file(path: Path, root: Path) -> FileIndex | None:
     return FileIndex(
         path=str(path.relative_to(root)),
         classes=tuple(classes),
+        class_lines=tuple(class_lines),
         functions=tuple(functions),
+        function_lines=tuple(function_lines),
         imports=tuple(dict.fromkeys(imports)),
     )
 
@@ -185,7 +194,9 @@ def load_index(root: Path | None = None) -> ProjectIndex | None:
                 FileIndex(
                     path=f["path"],
                     classes=tuple(f["classes"]),
+                    class_lines=tuple(f.get("class_lines", [])),
                     functions=tuple(f["functions"]),
+                    function_lines=tuple(f.get("function_lines", [])),
                     imports=tuple(f["imports"]),
                 )
                 for f in data["files"]
