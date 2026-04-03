@@ -280,6 +280,21 @@ def build_parser() -> argparse.ArgumentParser:
     chat_parser = subparsers.add_parser("chat", help="start an interactive chat session with Rozn")
     chat_parser.add_argument("--session", help="resume a previously saved session by ID")
 
+    index_parser = subparsers.add_parser(
+    "index",
+    help="scan the project and build rozn.index — run this once per project"
+    )
+    index_parser.add_argument(
+    "--show",
+    action="store_true",
+    help="print the index to terminal after building"
+    )
+    index_parser.add_argument(
+    "--find",
+    metavar="SYMBOL",
+    help="search the index for a class or function name"
+    )
+
     subparsers.add_parser("summary",          help="render a summary of the Rozn workspace")
     subparsers.add_parser("manifest",         help="print the current workspace manifest")
     subparsers.add_parser("parity-audit",     help="compare workspace against the local archive")
@@ -360,6 +375,40 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "chat":
         return run_chat(session_id=getattr(args, "session", None))
+    if args.command == "index":
+        from .indexer import build_and_save_index, load_index
+
+        if getattr(args, "find", None):
+            index = load_index()
+            if index is None:
+                console.print(f"[{ERR_RED}]no rozn.index found. run 'rozn index' first.[/{ERR_RED}]")
+                return 1
+            results = index.find_symbol(args.find)
+            if not results:
+                console.print(f"[{DIM_GRAY}]no matches for '{args.find}'[/{DIM_GRAY}]")
+            else:
+                for r in results:
+                    console.print(f"  [{ROZN_AMBER}]{r}[/{ROZN_AMBER}]")
+            return 0
+
+        with console.status(
+        f"[{DIM_GRAY}]scanning project...[/{DIM_GRAY}]",
+        spinner="dots",
+        spinner_style=ROZN_AMBER,
+        ):
+            index, path = build_and_save_index()
+
+        console.print(
+            f"[{ROZN_AMBER}]index built[/{ROZN_AMBER}] "
+            f"[{DIM_GRAY}]→ {path} "
+            f"({len(index.files)} files scanned)[/{DIM_GRAY}]"
+        )
+
+        if getattr(args, "show", False):
+            console.print()
+            console.print(index.to_compact_text())
+
+        return 0
     if args.command == "summary":
         print(QueryEnginePort(manifest).render_summary())
         return 0
