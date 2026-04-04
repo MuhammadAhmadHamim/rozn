@@ -189,7 +189,7 @@ def detect_and_inject_context(
                     f"lines: {result.line_count}\n"
                     f"---\n{result.content}"
                 )
-        elif size < 10000:
+        elif size < 8000:
             # medium file — load first 60 lines only
             result = read_file(str(path), start_line=1, end_line=60)
             if result.success:
