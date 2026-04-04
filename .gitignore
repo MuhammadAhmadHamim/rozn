@@ -7,3 +7,5 @@ archive/
 .claude/sessions/
 # Indexer generated file
 rozn.index
+# Generated memory file
+rozn.memory

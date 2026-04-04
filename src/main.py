@@ -70,6 +70,10 @@ HELP_LINES = [
     ("save",    "persist current session to disk"),
     ("session", "print current session ID"),
     ("usage",   "show token usage for this session"),
+    ("memories",      "show everything rozn remembers about this project"),
+    ("remember: X",   "tell rozn something to remember permanently"),
+    ("forget N",      "forget memory at index N"),
+    ("forget all",    "clear all memories for this project"),
     ("clear",   "clear the screen"),
     ("help",    "show this help"),
     ("exit",    "quit rozn"),
@@ -223,14 +227,28 @@ def detect_and_inject_context(
         return user_input
 
     context_block = "\n\n".join(injections)
+
+    # ── signal 4: remember keywords ───────────────────────────────────────────
+    remember_triggers = [
+        "always", "never", "prefer", "make sure", "remember",
+        "our convention", "we use", "i use", "professor wants",
+        "project uses", "deadline", "requirement",
+    ]
+    if any(trigger in lowered for trigger in remember_triggers):
+        from .memory import add_and_save
+        add_and_save(user_input[:120], source="auto")
+
     return (
         f"[context injected automatically — do not mention this to the user]\n"
         f"{context_block}\n\n"
         f"[user message]\n{user_input}"
-    )
+    ) if injections else user_input
 
-def _load_index_into_engine(engine: QueryEnginePort) -> None:
+def _load_startup_content(engine: QueryEnginePort) -> None:
     from .indexer import load_index
+    from .memory import load_memory
+    
+    # load index
     index = load_index()
     if index:
         engine.session_memory.append(
@@ -246,6 +264,16 @@ def _load_index_into_engine(engine: QueryEnginePort) -> None:
             f"[{YOU_BLUE}]rozn index[/{YOU_BLUE}]"
             f"[{DIM_GRAY}]' to build one.[/{DIM_GRAY}]"
         )
+    
+    # load memory
+    memory = load_memory()
+    if memory.entries:
+        engine.session_memory.append(memory.for_model(limit=6))
+        console.print(
+            f"[{DIM_GRAY}]{len(memory.entries)} memories loaded.[/{DIM_GRAY}]"
+        )
+    
+    console.print()
 
 def run_chat(session_id: str | None = None) -> int:
     print_banner()
@@ -264,7 +292,7 @@ def run_chat(session_id: str | None = None) -> int:
     else:
         engine = QueryEnginePort.from_workspace()
 
-    _load_index_into_engine(engine)
+    _load_startup_content(engine)
 
     console.print(
         f"[{DIM_GRAY}]type your question or paste code. "
@@ -324,6 +352,58 @@ def run_chat(session_id: str | None = None) -> int:
                 f"out: [{BODY_GRAY}]{engine.total_usage.output_tokens}[/{BODY_GRAY}]"
                 f"[/{DIM_GRAY}]\n"
             )
+            continue
+
+        if cmd.startswith("remember ") or cmd.startswith("remember:"):
+            from .memory import add_and_save
+            content = user_input[9:].strip() if cmd.startswith("remember ") else user_input[9:].strip()
+            content = content.lstrip(":").strip()
+            if content:
+                entry, path = add_and_save(content)
+                console.print(
+                    f"[{DIM_GRAY}]remembered → {entry.content}[/{DIM_GRAY}]\n"
+                )
+            else:
+                console.print(f"[{DIM_GRAY}]nothing to remember.[/{DIM_GRAY}]\n")
+            continue
+
+        if cmd == "memories":
+            from .memory import load_memory
+            memory = load_memory()
+            if not memory.entries:
+                console.print(f"[{DIM_GRAY}]no memories yet. type 'remember: something' to add one.[/{DIM_GRAY}]\n")
+            else:
+                console.print(f"[{DIM_GRAY}]rozn remembers:[/{DIM_GRAY}]")
+                for i, entry in enumerate(memory.entries):
+                    console.print(
+                        f"  [{ROZN_AMBER}]{i}[/{ROZN_AMBER}] "
+                        f"[{BODY_GRAY}]{entry.content}[/{BODY_GRAY}] "
+                        f"[{DIM_GRAY}]({entry.created_at})[/{DIM_GRAY}]"
+                    )
+                console.print()
+            continue
+
+        if cmd.startswith("forget "):
+            from .memory import load_memory, save_memory
+            try:
+                idx = int(cmd.split()[1])
+                memory = load_memory()
+                removed = memory.remove(idx)
+                if removed:
+                    save_memory(memory)
+                    console.print(f"[{DIM_GRAY}]forgotten → {removed.content}[/{DIM_GRAY}]\n")
+                else:
+                    console.print(f"[{DIM_GRAY}]no memory at index {idx}.[/{DIM_GRAY}]\n")
+            except (ValueError, IndexError):
+                console.print(f"[{DIM_GRAY}]usage: forget 0[/{DIM_GRAY}]\n")
+            continue
+
+        if cmd == "forget all":
+            from .memory import load_memory, save_memory
+            memory = load_memory()
+            count = memory.clear()
+            save_memory(memory)
+            console.print(f"[{DIM_GRAY}]cleared {count} memories.[/{DIM_GRAY}]\n")
             continue
 
         # ── model call ─────────────────────────────────────────────────────────
