@@ -154,52 +154,85 @@ def detect_and_inject_context(
     import re
 
     injections = []
+    lowered = user_input.lower()
 
-    # ── signal 1: explicit file paths — load file plus its local imports ──────
+    # load index once
+    index = load_index()
+
+    # ── signal 1: explicit file paths or names ────────────────────────────────
     file_pattern = re.compile(
         r'[\w/\\.\-]+\.(?:py|js|ts|cpp|c|h|java|cs|sql|json|toml|md|txt|yaml|yml)',
         re.IGNORECASE
     )
     mentioned_files = file_pattern.findall(user_input)
 
-    index = load_index()
-
     for raw_path in mentioned_files:
         path = Path(raw_path)
+
+        # search for file if not found at exact path
         if not path.exists():
             for candidate in Path(".").rglob(path.name):
                 path = candidate
                 break
 
-        if path.exists() and path.is_file():
-            size = path.stat().st_size
-            if size < 8000:
-                result = read_file(str(path))
-                if result.success:
-                    injections.append(
-                        f"[auto-loaded: {path}]\n"
-                        f"lines: {result.line_count}\n"
-                        f"---\n{result.content}"
-                    )
+        if not path.exists() or not path.is_file():
+            continue
 
-                    # follow import graph — load small deps too
-                    if index:
-                        from .indexer import get_file_with_deps
-                        deps = get_file_with_deps(path.name, index, max_depth=1)
-                        for dep in deps[1:2]:
-                            dep_path = Path(dep.path)
-                            if dep_path.exists() and dep_path.stat().st_size < 4000:
-                                dep_result = read_file(str(dep_path))
-                                if dep_result.success:
-                                    injections.append(
-                                        f"[auto-loaded dependency: {dep_path}]\n"
-                                        f"---\n{dep_result.content}"
-                                    )
-            else:
+        size = path.stat().st_size
+
+        if size < 6000:
+            # small enough — load full content
+            result = read_file(str(path))
+            if result.success:
                 injections.append(
-                    f"[file noted: {path} — {size} bytes, "
-                    f"use FileReadTool with line ranges to read sections]"
+                    f"[auto-loaded: {path}]\n"
+                    f"lines: {result.line_count}\n"
+                    f"---\n{result.content}"
                 )
+        elif size < 20000:
+            # medium file — load first 60 lines only
+            result = read_file(str(path), start_line=1, end_line=60)
+            if result.success:
+                # also get symbol list from index so model knows what's in the rest
+                symbol_hint = ""
+                if index:
+                    file_entry = next(
+                        (f for f in index.files
+                            if path.name.lower() in f.path.lower()),
+                        None
+                    )
+                    if file_entry:
+                        all_symbols = (
+                            [f"class {c}" for c in file_entry.classes] +
+                            [f"def {f}" for f in file_entry.functions]
+                        )
+                        if all_symbols:
+                            symbol_hint = (
+                                f"\nall symbols in this file: "
+                                + ", ".join(all_symbols)
+                            )
+                injections.append(
+                    f"[auto-loaded first 60 lines: {path}]\n"
+                    f"total lines: {result.line_count}{symbol_hint}\n"
+                    f"use FileReadTool with start_line/end_line for more\n"
+                    f"---\n{result.content}"
+                )
+        else:
+            # too large — give model the index entry instead
+            if index:
+                matches = index.find_symbol(path.stem)
+                if matches:
+                    injections.append(
+                        f"[file too large to auto-load: {path}]\n"
+                        f"known symbols:\n"
+                        + "\n".join(f"  {m}" for m in matches[:10])
+                        + f"\nuse FileReadTool with start_line/end_line to read sections."
+                    )
+                else:
+                    injections.append(
+                        f"[file too large to auto-load: {path} — {size} bytes]\n"
+                        f"use FileReadTool with start_line and end_line to read sections."
+                    )
 
     # ── signal 2: error and traceback keywords ────────────────────────────────
     error_keywords = {
@@ -209,11 +242,10 @@ def detect_and_inject_context(
         "oserror", "filenotfounderror", "permissionerror",
         "segfault", "nullpointer", "stackoverflow",
     }
-    lowered = user_input.lower()
     has_error_signal = any(kw in lowered for kw in error_keywords)
 
     if has_error_signal and not mentioned_files:
-        dir_result = list_dir(".", max_entries=30)
+        dir_result = list_dir(".", max_entries=25)
         if dir_result.success:
             injections.append(
                 f"[auto-loaded: project structure]\n"
@@ -221,32 +253,25 @@ def detect_and_inject_context(
             )
 
     # ── signal 3: symbol lookup from index ────────────────────────────────────
-    index = load_index()
     if index:
         words = re.findall(r'\b\w+\b', user_input)
         found_symbols = []
         for word in words:
-            if len(word) < 4:
+            if len(word) < 5:
                 continue
             matches = index.find_symbol(word)
             if matches:
                 found_symbols.extend(matches)
-
         if found_symbols:
-            unique = list(dict.fromkeys(found_symbols))[:6]
+            unique = list(dict.fromkeys(found_symbols))[:5]
             injections.append(
                 "[auto-resolved from index]\n"
                 + "\n".join(unique)
             )
 
-    if not injections:
-        return user_input
-
-    context_block = "\n\n".join(injections)
-
-    # ── signal 4: remember keywords ───────────────────────────────────────────
+    # ── signal 4: auto-remember triggers ─────────────────────────────────────
     remember_triggers = [
-        "always", "never", "prefer", "make sure", "remember",
+        "always", "never", "prefer", "make sure",
         "our convention", "we use", "i use", "professor wants",
         "project uses", "deadline", "requirement",
     ]
@@ -254,11 +279,15 @@ def detect_and_inject_context(
         from .memory import add_and_save
         add_and_save(user_input[:120], source="auto")
 
+    if not injections:
+        return user_input
+
+    context_block = "\n\n".join(injections)
     return (
-        f"[context injected automatically — do not mention this to the user]\n"
+        f"[context — do not mention this block to the user]\n"
         f"{context_block}\n\n"
         f"[user message]\n{user_input}"
-    ) if injections else user_input
+    )
 
 def _load_startup_content(engine: QueryEnginePort) -> None:
     from .indexer import load_index

@@ -266,7 +266,6 @@ class QueryEnginePort:
                 cleaned = cleaned[cleaned.rfind("{"):]
 
             if cleaned.startswith("{") and '"tool"' in cleaned:
-                try:
                     tool_payload = _json.loads(cleaned)
                     tool_name    = tool_payload.pop("tool", "")
                     tool_result  = dispatch_tool(tool_name, tool_payload)
@@ -278,9 +277,6 @@ class QueryEnginePort:
                         "content": f"Tool result for {tool_name}:\n{tool_result}\n\nNow answer the user's original question using this information."
                     })
                     continue
-
-                except _json.JSONDecodeError as e:
-                    print(f"[debug] JSON parse failed: {e}", file=sys.stderr)
 
             # no tool call detected — this is the final answer
             return content, total_input_tokens, total_output_tokens
