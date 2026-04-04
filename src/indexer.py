@@ -148,6 +148,41 @@ def scan_directory(root: Path) -> list[FileIndex]:
             results.append(index)
     return results
 
+def find_local_imports(file_index: FileIndex, all_files: tuple[FileIndex, ...]) -> list[FileIndex]:
+    related = []
+    for imp in file_index.imports:
+        imp_clean = imp.lstrip(".").replace(".", "/")
+        for candidate in all_files:
+            candidate_stem = Path(candidate.path).stem
+            if imp_clean.endswith(candidate_stem) or candidate_stem in imp_clean:
+                if candidate.path != file_index.path:
+                    related.append(candidate)
+    return related
+
+
+def get_file_with_deps(
+    filename: str,
+    index: ProjectIndex,
+    max_depth: int = 1,
+) -> list[FileIndex]:
+    needle = filename.lower().replace("\\", "/")
+    root_file = None
+    for f in index.files:
+        if needle in f.path.lower().replace("\\", "/"):
+            root_file = f
+            break
+
+    if root_file is None:
+        return []
+
+    result = [root_file]
+    if max_depth > 0:
+        deps = find_local_imports(root_file, index.files)
+        for dep in deps[:3]:
+            if dep not in result:
+                result.append(dep)
+
+    return result
 
 # ── Index builder ─────────────────────────────────────────────────────────────
 

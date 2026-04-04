@@ -155,12 +155,14 @@ def detect_and_inject_context(
 
     injections = []
 
-    # ── signal 1: explicit file paths or names with extensions ───────────────
+    # ── signal 1: explicit file paths — load file plus its local imports ──────
     file_pattern = re.compile(
         r'[\w/\\.\-]+\.(?:py|js|ts|cpp|c|h|java|cs|sql|json|toml|md|txt|yaml|yml)',
         re.IGNORECASE
     )
     mentioned_files = file_pattern.findall(user_input)
+
+    index = load_index()
 
     for raw_path in mentioned_files:
         path = Path(raw_path)
@@ -179,6 +181,20 @@ def detect_and_inject_context(
                         f"lines: {result.line_count}\n"
                         f"---\n{result.content}"
                     )
+
+                    # follow import graph — load small deps too
+                    if index:
+                        from .indexer import get_file_with_deps
+                        deps = get_file_with_deps(path.name, index, max_depth=1)
+                        for dep in deps[1:2]:
+                            dep_path = Path(dep.path)
+                            if dep_path.exists() and dep_path.stat().st_size < 4000:
+                                dep_result = read_file(str(dep_path))
+                                if dep_result.success:
+                                    injections.append(
+                                        f"[auto-loaded dependency: {dep_path}]\n"
+                                        f"---\n{dep_result.content}"
+                                    )
             else:
                 injections.append(
                     f"[file noted: {path} — {size} bytes, "
@@ -469,19 +485,37 @@ def build_parser() -> argparse.ArgumentParser:
     chat_parser.add_argument("--session", help="resume a previously saved session by ID")
 
     index_parser = subparsers.add_parser(
-    "index",
-    help="scan the project and build rozn.index — run this once per project"
+        "index",
+        help="scan the project and build rozn.index — run this once per project"
     )
     index_parser.add_argument(
-    "--show",
-    action="store_true",
-    help="print the index to terminal after building"
+        "--show",
+        action="store_true",
+        help="print the index to terminal after building"
     )
     index_parser.add_argument(
-    "--find",
-    metavar="SYMBOL",
-    help="search the index for a class or function name"
+        "--find",
+        metavar="SYMBOL",
+        help="search the index for a class or function name"
     )
+
+    explain_parser = subparsers.add_parser(
+        "explain",
+        help="explain what a file does in plain language"
+    )
+    explain_parser.add_argument("file", help="path to the file to explain")
+    explain_parser.add_argument(
+        "--lines",
+        metavar="N",
+        type=int,
+        default=60,
+        help="how many lines to read (default 60)"
+    )
+    document_parser = subparsers.add_parser(
+        "document",
+        help="generate a README-style description of a file"
+    )
+    document_parser.add_argument("file", help="path to the file to document")
 
     subparsers.add_parser("summary",          help="render a summary of the Rozn workspace")
     subparsers.add_parser("manifest",         help="print the current workspace manifest")
@@ -596,6 +630,79 @@ def main(argv: list[str] | None = None) -> int:
             console.print()
             console.print(index.to_compact_text())
 
+        return 0
+    if args.command == "explain":
+        from .real_tools import read_file
+        from .query_engine import QueryEnginePort
+
+        file_path = args.file
+        lines = getattr(args, "lines", 60)
+
+        result = read_file(file_path, end_line=lines)
+        if not result.success:
+            console.print(f"[{ERR_RED}]{result.error}[/{ERR_RED}]")
+            return 1
+
+        console.print(
+            f"[{DIM_GRAY}]reading {file_path}...[/{DIM_GRAY}]"
+        )
+
+        engine = QueryEnginePort.from_workspace()
+        prompt = (
+            f"Here is the file {file_path}:\n\n"
+            f"{result.content}\n\n"
+            f"Explain what this file does in plain language. "
+            f"What is its purpose, what are its main functions or classes, "
+            f"and how does it fit into the project?"
+        )
+
+        with console.status(
+            f"[{DIM_GRAY}]rozn is reading...[/{DIM_GRAY}]",
+            spinner="dots",
+            spinner_style=ROZN_AMBER,
+        ):
+            turn_result = engine.submit_message(prompt)
+
+        console.print(Rule(
+            f"[bold {ROZN_AMBER}]{file_path}[/bold {ROZN_AMBER}]",
+            style=DIM_GRAY,
+            align="left",
+        ))
+        console.print(Markdown(turn_result.output))
+        console.print()
+        return 0
+    if args.command == "document":
+        from .real_tools import read_file
+        from .query_engine import QueryEnginePort
+
+        result = read_file(args.file, end_line=80)
+        if not result.success:
+            console.print(f"[{ERR_RED}]{result.error}[/{ERR_RED}]")
+            return 1
+
+        engine = QueryEnginePort.from_workspace()
+        prompt = (
+            f"Here is the file {args.file}:\n\n"
+            f"{result.content}\n\n"
+            f"Write a concise README-style documentation section for this file. "
+            f"Include: what it does, its main classes and functions with one-line descriptions, "
+            f"and any important usage notes. Use markdown formatting."
+        )
+
+        with console.status(
+            f"[{DIM_GRAY}]rozn is documenting...[/{DIM_GRAY}]",
+            spinner="dots",
+            spinner_style=ROZN_AMBER,
+        ):
+            turn_result = engine.submit_message(prompt)
+
+        console.print(Rule(
+            f"[bold {ROZN_AMBER}]documentation — {args.file}[/bold {ROZN_AMBER}]",
+            style=DIM_GRAY,
+            align="left",
+        ))
+        console.print(Markdown(turn_result.output))
+        console.print()
         return 0
     if args.command == "summary":
         print(QueryEnginePort(manifest).render_summary())
