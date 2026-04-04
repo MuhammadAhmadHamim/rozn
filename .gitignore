@@ -1,8 +1,10 @@
 __pycache__/
+*.pyc
+.venv/
 archive/
 .omx/
 .clawd-agents/
-# Claude Code local artifacts
+.reference_data/
 .claude/settings.local.json
 .claude/sessions/
 # Indexer generated file
