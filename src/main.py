@@ -181,7 +181,6 @@ def detect_and_inject_context(
         size = path.stat().st_size
 
         if size < 5000:
-            # small enough — load full content
             result = read_file(str(path))
             if result.success:
                 injections.append(
@@ -189,6 +188,39 @@ def detect_and_inject_context(
                     f"lines: {result.line_count}\n"
                     f"---\n{result.content}"
                 )
+
+                # phase 7 — follow one level of imports
+                if index:
+                    deps = index.resolve_import_graph(
+                        str(path), max_depth=1
+                    ).get(
+                        next(
+                            (f.path for f in index.files
+                                if path.name.lower() in f.path.lower()),
+                            ""
+                        ), []
+                    )
+                    for dep in deps[:2]:
+                        dep_path = Path(dep.path)
+                        if not dep_path.exists():
+                            dep_path = Path("src") / dep_path
+                        if dep_path.exists() and dep_path.stat().st_size < 3000:
+                            dep_result = read_file(str(dep_path))
+                            if dep_result.success:
+                                injections.append(
+                                    f"[dependency: {dep_path}]\n"
+                                    f"---\n{dep_result.content}"
+                                )
+                        else:
+                            symbol_summary = (
+                                [f"class {c}" for c in dep.classes] +
+                                [f"def {f}" for f in dep.functions]
+                            )
+                            if symbol_summary:
+                                injections.append(
+                                    f"[dependency symbols: {dep.path}]\n"
+                                    + "\n".join(f"  {s}" for s in symbol_summary[:8])
+                                )
         elif size < 8000:
             # medium file — load first 60 lines only
             result = read_file(str(path), start_line=1, end_line=60)
@@ -528,6 +560,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="search the index for a class or function name"
     )
 
+    trace_parser = subparsers.add_parser(
+        "trace",
+        help="show the import graph of a file — what it depends on"
+    )
+    trace_parser.add_argument("file", help="file to trace, e.g. src/query_engine.py")
+    trace_parser.add_argument(
+        "--depth",
+        type=int,
+        default=1,
+        help="how many levels of imports to follow (default: 1)"
+    )
+
     explain_parser = subparsers.add_parser(
         "explain",
         help="explain what a file does in plain language"
@@ -660,6 +704,20 @@ def main(argv: list[str] | None = None) -> int:
             console.print(index.to_compact_text())
 
         return 0
+
+    if args.command == "trace":
+        from .indexer import load_index
+        index = load_index()
+        if index is None:
+            console.print(
+                f"[{ERR_RED}]no rozn.index found. "
+                f"run 'rozn index' first.[/{ERR_RED}]"
+            )
+            return 1
+        output = index.format_trace(args.file, max_depth=args.depth)
+        console.print(f"[{ROZN_AMBER}]{output}[/{ROZN_AMBER}]")
+        return 0
+
     if args.command == "explain":
         from .real_tools import read_file
         from .query_engine import QueryEnginePort

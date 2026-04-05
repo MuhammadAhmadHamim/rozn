@@ -14,6 +14,7 @@ class FileIndex:
     classes: tuple[str, ...]
     functions: tuple[str, ...]
     imports: tuple[str, ...]
+    relative_imports: tuple[str, ...]
     class_lines: tuple[int, ...] = ()
     function_lines: tuple[int, ...] = ()
 
@@ -46,6 +47,7 @@ class ProjectIndex:
                     "functions": list(f.functions),
                     "function_lines": list(f.function_lines),
                     "imports": list(f.imports),
+                    "relative_imports": list(f.relative_imports),
                 }
                 for f in self.files
             ]
@@ -75,6 +77,71 @@ class ProjectIndex:
                 lines.append(f"    def {fn}")
         return "\n".join(lines)
 
+    def resolve_import_graph(
+        self,
+        file_path: str,
+        max_depth: int = 1,
+    ) -> dict[str, list[FileIndex]]:
+        needle = file_path.lower().replace("\\", "/")
+        root_file = next(
+            (f for f in self.files
+             if needle in f.path.lower().replace("\\", "/")),
+            None,
+        )
+        if root_file is None:
+            return {}
+
+        graph: dict[str, list[FileIndex]] = {}
+        visited = {root_file.path}
+        queue = [(root_file, 0)]
+
+        while queue:
+            current, depth = queue.pop(0)
+            if depth >= max_depth:
+                continue
+            deps = find_local_imports(current, self.files)
+            graph[current.path] = deps
+            for dep in deps:
+                if dep.path not in visited:
+                    visited.add(dep.path)
+                    queue.append((dep, depth + 1))
+
+        return graph
+
+    def format_trace(self, file_path: str, max_depth: int = 1) -> str:
+        needle = file_path.lower().replace("\\", "/")
+        root_file = next(
+            (f for f in self.files
+             if needle in f.path.lower().replace("\\", "/")),
+            None,
+        )
+        if root_file is None:
+            return f"file not found in index: {file_path}\nrun 'rozn index' to rebuild."
+
+        graph = self.resolve_import_graph(file_path, max_depth=max_depth)
+
+        lines = [f"{root_file.path}"]
+
+        def render_symbols(f: FileIndex, indent: str) -> None:
+            for cls in f.classes[:4]:
+                lines.append(f"{indent}  class {cls}")
+            for fn in f.functions[:6]:
+                lines.append(f"{indent}  def {fn}")
+            total = len(f.classes) + len(f.functions)
+            shown = min(len(f.classes), 4) + min(len(f.functions), 6)
+            if total > shown:
+                lines.append(f"{indent}  ... and {total - shown} more")
+
+        deps = graph.get(root_file.path, [])
+        if not deps:
+            lines.append("  no local dependencies found")
+        else:
+            for dep in deps:
+                lines.append(f"  imports {dep.path}")
+                render_symbols(dep, "  ")
+
+        return "\n".join(lines)
+
 
 # ── AST scanner ───────────────────────────────────────────────────────────────
 
@@ -102,15 +169,17 @@ def scan_file(path: Path, root: Path) -> FileIndex | None:
             classes=(),
             functions=(),
             imports=(),
+            relative_imports=(),
         )
     except Exception:
         return None
 
-    classes        = []
-    class_lines    = []
-    functions      = []
-    function_lines = []
-    imports        = []
+    classes         = []
+    class_lines     = []
+    functions       = []
+    function_lines  = []
+    imports         = []
+    relative_imports = []
 
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
@@ -125,7 +194,16 @@ def scan_file(path: Path, root: Path) -> FileIndex | None:
                 imports.append(alias.name)
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
-            if not module.startswith("."):
+            if module.startswith(".") or not module:
+                # relative import — store the module name without leading dot
+                clean = module.lstrip(".")
+                if clean:
+                    relative_imports.append(clean)
+                else:
+                    # bare relative import like "from . import models"
+                    for alias in node.names:
+                        relative_imports.append(alias.name)
+            else:
                 imports.append(module)
 
     return FileIndex(
@@ -135,6 +213,7 @@ def scan_file(path: Path, root: Path) -> FileIndex | None:
         functions=tuple(functions),
         function_lines=tuple(function_lines),
         imports=tuple(dict.fromkeys(imports)),
+        relative_imports=tuple(dict.fromkeys(relative_imports)),
     )
 
 
@@ -148,15 +227,44 @@ def scan_directory(root: Path) -> list[FileIndex]:
             results.append(index)
     return results
 
-def find_local_imports(file_index: FileIndex, all_files: tuple[FileIndex, ...]) -> list[FileIndex]:
+
+def find_local_imports(
+    file_index: FileIndex,
+    all_files: tuple[FileIndex, ...],
+) -> list[FileIndex]:
     related = []
-    for imp in file_index.imports:
-        imp_clean = imp.lstrip(".").replace(".", "/")
+    seen = set()
+
+    # check relative imports first — these are the real local dependencies
+    for imp in file_index.relative_imports:
+        imp_clean = imp.replace(".", "/")
         for candidate in all_files:
+            if candidate.path == file_index.path:
+                continue
             candidate_stem = Path(candidate.path).stem
-            if imp_clean.endswith(candidate_stem) or candidate_stem in imp_clean:
-                if candidate.path != file_index.path:
+            candidate_name = Path(candidate.path).name
+            if (
+                imp_clean == candidate_stem
+                or imp_clean.endswith(f"/{candidate_stem}")
+                or imp == candidate_stem
+            ):
+                if candidate.path not in seen:
+                    seen.add(candidate.path)
                     related.append(candidate)
+
+    # also check absolute imports for third-party modules
+    # that might shadow local names — keep this secondary
+    for imp in file_index.imports:
+        imp_clean = imp.replace(".", "/")
+        for candidate in all_files:
+            if candidate.path == file_index.path:
+                continue
+            candidate_stem = Path(candidate.path).stem
+            if imp_clean.endswith(candidate_stem) or imp == candidate_stem:
+                if candidate.path not in seen:
+                    seen.add(candidate.path)
+                    related.append(candidate)
+
     return related
 
 
@@ -184,6 +292,7 @@ def get_file_with_deps(
 
     return result
 
+
 # ── Index builder ─────────────────────────────────────────────────────────────
 
 INDEX_FILENAME = "rozn.index"
@@ -194,8 +303,7 @@ def build_index(root: Path | None = None) -> ProjectIndex:
 
     project_root = root or Path.cwd()
     src_root     = project_root / "src"
-
-    scan_root = src_root if src_root.exists() else project_root
+    scan_root    = src_root if src_root.exists() else project_root
 
     files = scan_directory(scan_root)
 
@@ -233,6 +341,7 @@ def load_index(root: Path | None = None) -> ProjectIndex | None:
                     functions=tuple(f["functions"]),
                     function_lines=tuple(f.get("function_lines", [])),
                     imports=tuple(f["imports"]),
+                    relative_imports=tuple(f.get("relative_imports", [])),
                 )
                 for f in data["files"]
             ),
