@@ -250,21 +250,58 @@ def detect_and_inject_context(
                     f"---\n{result.content}"
                 )
         else:
-            # too large — give model the index entry instead
+            # large file — first 30 lines + full symbol list + import graph
+            result = read_file(str(path), start_line=1, end_line=30)
+            content_hint = ""
+            if result.success:
+                content_hint = f"\nfirst 30 lines:\n---\n{result.content}\n---"
+
+            symbol_hint = ""
             if index:
-                matches = index.find_symbol(path.stem)
-                if matches:
-                    injections.append(
-                        f"[file too large to auto-load: {path}]\n"
-                        f"known symbols:\n"
-                        + "\n".join(f"  {m}" for m in matches[:10])
-                        + f"\nuse FileReadTool with start_line/end_line to read sections."
+                file_entry = next(
+                    (f for f in index.files
+                        if path.name.lower() in f.path.lower()),
+                    None
+                )
+                if file_entry:
+                    all_symbols = (
+                        [f"class {c} (line {l})"
+                            for c, l in zip(file_entry.classes, file_entry.class_lines)] +
+                        [f"def {f} (line {l})"
+                            for f, l in zip(file_entry.functions, file_entry.function_lines)]
                     )
-                else:
-                    injections.append(
-                        f"[file too large to auto-load: {path} — {size} bytes]\n"
-                        f"use FileReadTool with start_line and end_line to read sections."
+                    if all_symbols:
+                        symbol_hint = (
+                            f"\nall symbols:\n"
+                            + "\n".join(f"  {s}" for s in all_symbols)
+                        )
+
+                    # phase 7 — add import graph for large files too
+                    graph = index.resolve_import_graph(str(path), max_depth=1)
+                    file_key = next(
+                        (f.path for f in index.files
+                            if path.name.lower() in f.path.lower()),
+                        ""
                     )
+                    deps = graph.get(file_key, [])
+                    if deps:
+                        dep_lines = ["\nimport graph (direct dependencies):"]
+                        for dep in deps[:5]:
+                            dep_symbols = (
+                                [f"class {c}" for c in dep.classes[:3]] +
+                                [f"def {f}" for f in dep.functions[:3]]
+                            )
+                            dep_lines.append(f"  {dep.path}")
+                            dep_lines.extend(f"    {s}" for s in dep_symbols)
+                        symbol_hint += "\n".join(dep_lines)
+
+            injections.append(
+                f"[large file — partial load: {path}]\n"
+                f"total size: {size} bytes"
+                f"{content_hint}"
+                f"{symbol_hint}\n"
+                f"use FileReadTool with start_line/end_line to read specific sections."
+            )
 
     # ── signal 2: error and traceback keywords ────────────────────────────────
     error_keywords = {
