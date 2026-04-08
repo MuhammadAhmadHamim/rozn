@@ -774,77 +774,132 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "explain":
-        from .real_tools import read_file
-        from .query_engine import QueryEnginePort
+        from .documenter import explain_file
+        from .language_detector import detect_language
+        from .indexer import load_index
 
-        file_path = args.file
-        lines = getattr(args, "lines", 60)
-
-        result = read_file(file_path, end_line=lines)
-        if not result.success:
-            console.print(f"[{ERR_RED}]{result.error}[/{ERR_RED}]")
-            return 1
+        lang  = detect_language()
+        index = load_index()
 
         console.print(
-            f"[{DIM_GRAY}]reading {file_path}...[/{DIM_GRAY}]"
+            f"[{DIM_GRAY}]explaining {args.file}...[/{DIM_GRAY}]"
         )
-
-        engine = QueryEnginePort.from_workspace()
-        prompt = (
-            f"Here is the file {file_path}:\n\n"
-            f"{result.content}\n\n"
-            f"Explain what this file does in plain language. "
-            f"What is its purpose, what are its main functions or classes, "
-            f"and how does it fit into the project?"
-        )
-
         with console.status(
             f"[{DIM_GRAY}]rozn is reading...[/{DIM_GRAY}]",
             spinner="dots",
             spinner_style=ROZN_AMBER,
         ):
-            turn_result = engine.submit_message(prompt)
+            result = explain_file(args.file, lang, index)
 
-        console.print(Rule(
-            f"[bold {ROZN_AMBER}]{file_path}[/bold {ROZN_AMBER}]",
-            style=DIM_GRAY,
-            align="left",
-        ))
-        console.print(Markdown(turn_result.output))
-        console.print()
-        return 0
-    if args.command == "document":
-        from .real_tools import read_file
-        from .query_engine import QueryEnginePort
-
-        result = read_file(args.file, end_line=80)
         if not result.success:
             console.print(f"[{ERR_RED}]{result.error}[/{ERR_RED}]")
             return 1
 
-        engine = QueryEnginePort.from_workspace()
-        prompt = (
-            f"Here is the file {args.file}:\n\n"
-            f"{result.content}\n\n"
-            f"Write a concise README-style documentation section for this file. "
-            f"Include: what it does, its main classes and functions with one-line descriptions, "
-            f"and any important usage notes. Use markdown formatting."
-        )
-
-        with console.status(
-            f"[{DIM_GRAY}]rozn is documenting...[/{DIM_GRAY}]",
-            spinner="dots",
-            spinner_style=ROZN_AMBER,
-        ):
-            turn_result = engine.submit_message(prompt)
-
         console.print(Rule(
-            f"[bold {ROZN_AMBER}]documentation — {args.file}[/bold {ROZN_AMBER}]",
+            f"[bold {ROZN_AMBER}]{args.file}[/bold {ROZN_AMBER}]",
             style=DIM_GRAY,
             align="left",
         ))
-        console.print(Markdown(turn_result.output))
-        console.print()
+        console.print(Markdown(result.content))
+        return 0
+    if args.command == "document":
+        from .documenter import explain_file, generate_project_readme
+        from .language_detector import detect_language
+        from .indexer import load_index
+        from .memory import load_memory
+
+        lang   = detect_language()
+        index  = load_index()
+
+        if args.project or args.file is None:
+            memory  = load_memory()
+            entries = [e.content for e in memory.entries]
+
+            console.print(
+                f"[{DIM_GRAY}]generating project README...[/{DIM_GRAY}]"
+            )
+            with console.status(
+                f"[{DIM_GRAY}]rozn is writing...[/{DIM_GRAY}]",
+                spinner="dots",
+                spinner_style=ROZN_AMBER,
+            ):
+                result = generate_project_readme(
+                    index=index,
+                    language=lang,
+                    memory_entries=entries,
+                )
+
+            if not result.success:
+                console.print(f"[{ERR_RED}]{result.error}[/{ERR_RED}]")
+                return 1
+
+            if args.write:
+                out_path = Path("README.md")
+                out_path.write_text(result.content, encoding="utf-8")
+                console.print(
+                    f"[{ROZN_AMBER}]README.md written → {out_path.resolve()}[/{ROZN_AMBER}]"
+                )
+            else:
+                console.print(Rule(
+                    f"[bold {ROZN_AMBER}]README.md preview[/bold {ROZN_AMBER}]",
+                    style=DIM_GRAY,
+                ))
+                console.print(Markdown(result.content))
+
+        else:
+            console.print(
+                f"[{DIM_GRAY}]documenting {args.file}...[/{DIM_GRAY}]"
+            )
+            with console.status(
+                f"[{DIM_GRAY}]rozn is writing...[/{DIM_GRAY}]",
+                spinner="dots",
+                spinner_style=ROZN_AMBER,
+            ):
+                result = explain_file(args.file, lang, index)
+
+            if not result.success:
+                console.print(f"[{ERR_RED}]{result.error}[/{ERR_RED}]")
+                return 1
+
+            console.print(Rule(
+                f"[bold {ROZN_AMBER}]documentation — {args.file}[/bold {ROZN_AMBER}]",
+                style=DIM_GRAY,
+                align="left",
+            ))
+            console.print(Markdown(result.content))
+
+        return 0
+    if args.command == "docstring":
+        from .documenter import generate_docstring
+        from .language_detector import detect_language
+        from .indexer import load_index
+
+        lang  = detect_language()
+        index = load_index()
+
+        console.print(
+            f"[{DIM_GRAY}]generating docstring for "
+            f"{args.function} in {args.file}...[/{DIM_GRAY}]"
+        )
+        with console.status(
+            f"[{DIM_GRAY}]rozn is writing...[/{DIM_GRAY}]",
+            spinner="dots",
+            spinner_style=ROZN_AMBER,
+        ):
+            result = generate_docstring(
+                args.file, args.function, lang, index
+            )
+
+        if not result.success:
+            console.print(f"[{ERR_RED}]{result.error}[/{ERR_RED}]")
+            return 1
+
+        console.print(Rule(
+            f"[bold {ROZN_AMBER}]{args.function}[/bold {ROZN_AMBER}]",
+            style=DIM_GRAY,
+            align="left",
+        ))
+        console.print(Markdown(f"```\n{result.content}\n```"))
         return 0
     if args.command == "detect":
         from .language_detector import detect_language
