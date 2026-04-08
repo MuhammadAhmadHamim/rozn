@@ -4,9 +4,7 @@ __pycache__/
 archive/
 .omx/
 *.egg-info/
-.reference_data/
-.claude/settings.local.json
-.claude/sessions/
+.port_sessions/
 # Indexer generated file
 rozn.index
 # Generated memory file
