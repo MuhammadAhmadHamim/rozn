@@ -643,6 +643,10 @@ def build_parser() -> argparse.ArgumentParser:
     document_parser.add_argument("file", help="path to the file to document")
 
     subparsers.add_parser("summary",          help="render a summary of the Rozn workspace")
+    subparsers.add_parser(
+        "detect",
+        help="detect the primary programming language of the current project"
+    )
     subparsers.add_parser("manifest",         help="print the current workspace manifest")
     subparsers.add_parser("parity-audit",     help="compare workspace against the local archive")
     subparsers.add_parser("setup-report",     help="render the startup setup report")
@@ -842,6 +846,39 @@ def main(argv: list[str] | None = None) -> int:
         ))
         console.print(Markdown(turn_result.output))
         console.print()
+        return 0
+    if args.command == "detect":
+        from .language_detector import detect_language
+        lang = detect_language()
+        console.print(
+            f"[{ROZN_AMBER}]primary language:[/{ROZN_AMBER}] "
+            f"[{BODY_GRAY}]{lang.primary}[/{BODY_GRAY}]"
+        )
+        if lang.sql_dialect:
+            console.print(
+                f"[{ROZN_AMBER}]sql dialect:[/{ROZN_AMBER}] "
+                f"[{BODY_GRAY}]{lang.sql_dialect}[/{BODY_GRAY}]"
+            )
+        if lang.secondary:
+            console.print(
+                f"[{ROZN_AMBER}]secondary:[/{ROZN_AMBER}] "
+                f"[{BODY_GRAY}]{', '.join(lang.secondary)}[/{BODY_GRAY}]"
+            )
+        if lang.jupyter:
+            console.print(
+                f"[{DIM_GRAY}]jupyter notebooks present[/{DIM_GRAY}]"
+            )
+        console.print(
+            f"[{DIM_GRAY}]confidence: {lang.confidence}[/{DIM_GRAY}]"
+        )
+        console.print()
+        console.print(f"[{DIM_GRAY}]file counts:[/{DIM_GRAY}]")
+        for language, count in sorted(
+            lang.file_counts.items(), key=lambda x: x[1], reverse=True
+        ):
+            console.print(
+                f"  [{BODY_GRAY}]{language:<20} {count} files[/{BODY_GRAY}]"
+            )
         return 0
     if args.command == "summary":
         print(QueryEnginePort(manifest).render_summary())
