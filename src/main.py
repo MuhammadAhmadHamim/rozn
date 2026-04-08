@@ -310,6 +310,20 @@ def detect_and_inject_context(
                 + "\n".join(dir_result.entries)
             )
 
+    # ── signal 2b: language-specific error classification ─────────────────────
+    if has_error_signal:
+        from .language_detector import detect_language, classify_error
+        lang = detect_language()
+        error_lang = classify_error(user_input, lang)
+        if error_lang and error_lang != lang.primary:
+            injections.append(
+                f"[error classification: this looks like a {error_lang} error]"
+            )
+        elif error_lang:
+            injections.append(
+                f"[error classification: {error_lang} error detected]"
+            )
+
     # ── signal 3: symbol lookup from index ────────────────────────────────────
     if index:
         words = re.findall(r'\b\w+\b', user_input)
@@ -350,7 +364,19 @@ def detect_and_inject_context(
 def _load_startup_content(engine: QueryEnginePort) -> None:
     from .indexer import load_index
     from .memory import load_memory
-    
+    from .language_detector import detect_language
+
+    # detect project language
+    lang = detect_language()
+    if lang.primary != "Unknown":
+        lang_context = lang.context_for_model()
+        if lang_context:
+            engine.session_memory.append(lang_context)
+        console.print(
+            f"[{DIM_GRAY}]language detected: [/{DIM_GRAY}]"
+            f"[{ROZN_AMBER}]{lang.display()}[/{ROZN_AMBER}]"
+        )
+
     # load index
     index = load_index()
     if index:

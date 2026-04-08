@@ -300,12 +300,16 @@ INDEX_FILENAME = "rozn.index"
 
 def build_index(root: Path | None = None) -> ProjectIndex:
     from datetime import datetime
+    from .language_detector import detect_language
 
     project_root = root or Path.cwd()
     src_root     = project_root / "src"
     scan_root    = src_root if src_root.exists() else project_root
 
     files = scan_directory(scan_root)
+
+    # detect language at index build time
+    lang = detect_language(project_root)
 
     return ProjectIndex(
         root=str(project_root),

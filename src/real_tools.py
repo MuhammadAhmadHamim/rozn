@@ -72,6 +72,18 @@ def read_file(path: str, start_line: int = 0, end_line: int = 0) -> FileReadResu
                     f"use start_line and end_line to read a specific section."
                 )
             )
+        
+        # special handling for Jupyter notebooks
+        if p.suffix.lower() == ".ipynb":
+            from .language_detector import extract_jupyter_python
+            python_content = extract_jupyter_python(p)
+            return FileReadResult(
+                path=str(p),
+                content=python_content,
+                success=True,
+                line_count=python_content.count("\n") + 1,
+                size_bytes=size,
+            )
 
         all_lines = p.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
         total_lines = len(all_lines)
