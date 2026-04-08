@@ -3,7 +3,7 @@ __pycache__/
 .venv/
 archive/
 .omx/
-.clawd-agents/
+*.egg-info/
 .reference_data/
 .claude/settings.local.json
 .claude/sessions/
