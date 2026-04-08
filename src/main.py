@@ -312,14 +312,12 @@ def detect_and_inject_context(
 
     # ── signal 2b: language-specific error classification ─────────────────────
     if has_error_signal:
-        from .language_detector import detect_language, classify_error
-        lang = detect_language()
-        error_lang = classify_error(user_input, lang)
-        if error_lang and error_lang != lang.primary:
-            injections.append(
-                f"[error classification: this looks like a {error_lang} error]"
-            )
-        elif error_lang:
+        from .language_detector import classify_error, ProjectLanguage, ERROR_PATTERNS
+        cached_lang = engine.detected_language or "Python"
+        # build a minimal ProjectLanguage from the cached name
+        proj_lang = ProjectLanguage(primary=cached_lang)
+        error_lang = classify_error(user_input, proj_lang)
+        if error_lang:
             injections.append(
                 f"[error classification: {error_lang} error detected]"
             )
@@ -372,6 +370,7 @@ def _load_startup_content(engine: QueryEnginePort) -> None:
         lang_context = lang.context_for_model()
         if lang_context:
             engine.session_memory.append(lang_context)
+        engine.detected_language = lang.primary  # cache it
         console.print(
             f"[{DIM_GRAY}]language detected: [/{DIM_GRAY}]"
             f"[{ROZN_AMBER}]{lang.display()}[/{ROZN_AMBER}]"
