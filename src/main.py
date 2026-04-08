@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from datetime import datetime
 
 from rich.console import Console
@@ -26,6 +25,16 @@ from .setup import run_setup
 from .tool_pool import assemble_tool_pool
 from .tools import execute_tool, get_tool, get_tools, render_tool_index
 from pathlib import Path
+import sys
+
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(
+        sys.stdout.buffer, encoding="utf-8", errors="replace"
+    )
+    sys.stderr = io.TextIOWrapper(
+        sys.stderr.buffer, encoding="utf-8", errors="replace"
+    )
 
 # ── Rozn colour palette ────────────────────────────────────────────────────────
 ROZN_AMBER  = "#c8922a"   # rozn speaks — used nowhere else
@@ -589,7 +598,7 @@ def run_chat(session_id: str | None = None) -> int:
 # ── CLI parser — unchanged from before ────────────────────────────────────────
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Rozn — a local offline coding assistant. روزن"
+        description="Rozn — a local offline coding assistant."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -627,19 +636,31 @@ def build_parser() -> argparse.ArgumentParser:
         "explain",
         help="explain what a file does in plain language"
     )
-    explain_parser.add_argument("file", help="path to the file to explain")
-    explain_parser.add_argument(
-        "--lines",
-        metavar="N",
-        type=int,
-        default=60,
-        help="how many lines to read (default 60)"
-    )
+    explain_parser.add_argument("file", help="file to explain")
+
     document_parser = subparsers.add_parser(
         "document",
-        help="generate a README-style description of a file"
+        help="generate documentation for a file or the whole project"
     )
-    document_parser.add_argument("file", help="path to the file to document")
+    document_parser.add_argument(
+        "file", nargs="?", default=None,
+        help="file to document (omit with --project for full README)"
+    )
+    document_parser.add_argument(
+        "--project", action="store_true",
+        help="generate a README.md for the entire project"
+    )
+    document_parser.add_argument(
+        "--write", action="store_true",
+        help="write output to README.md instead of printing"
+    )
+
+    docstring_parser = subparsers.add_parser(
+        "docstring",
+        help="generate a docstring or comment block for a specific function"
+    )
+    docstring_parser.add_argument("file", help="file containing the function")
+    docstring_parser.add_argument("function", help="function name to document")
 
     subparsers.add_parser("summary",          help="render a summary of the Rozn workspace")
     subparsers.add_parser(
