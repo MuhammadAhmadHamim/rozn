@@ -180,7 +180,7 @@ class QueryEnginePort:
     permission_denials: list[PermissionDenial] = field(default_factory=list)
     total_usage: UsageSummary = field(default_factory=UsageSummary)
     transcript_store: TranscriptStore = field(default_factory=TranscriptStore)
-    detected_language: str = ""  # add this
+    detected_language: str = ""
 
     @classmethod
     def from_workspace(cls) -> 'QueryEnginePort':
