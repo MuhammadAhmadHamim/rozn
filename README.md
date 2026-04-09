@@ -374,5 +374,7 @@ The name was chosen after evaluating over 50 candidates across Urdu, Persian, Ar
 <div align="center">
 
 <img width="100%" src="https://capsule-render.vercel.app/api?type=waving&color=0:1a1208,50:0a0704,100:1a1208&height=120&section=footer&animation=fadeIn" alt="footer"/>
+
 *روزن — the crack of light. Everything else is darkness*
+
 </div>
