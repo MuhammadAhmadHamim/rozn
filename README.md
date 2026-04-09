@@ -255,12 +255,40 @@ These aren't arbitrary limits. They are the architecture. Three-tier file loadin
 
 ## ◈ Language Support
 
-```
-Python · Jupyter Notebook · C++ · C · Java · C# · JavaScript · TypeScript
-SQL (PostgreSQL · MySQL · SQLite · MSSQL) · Rust · Go · Kotlin · Swift
-Ruby · PHP · Scala · Dart · R · MATLAB · Shell · PowerShell · Batch
-Haskell · OCaml · Julia · Elixir · Erlang
-```
+<div align="center">
+
+![](https://img.shields.io/badge/Python-f5f0e8?style=flat-square&logo=python&logoColor=0a0704)
+![](https://img.shields.io/badge/Jupyter-c9a84c?style=flat-square&logo=jupyter&logoColor=0a0704)
+![](https://img.shields.io/badge/C%2B%2B-1a1208?style=flat-square&logo=cplusplus&logoColor=f5f0e8)
+![](https://img.shields.io/badge/C-0a0704?style=flat-square&logo=c&logoColor=f5f0e8)
+![](https://img.shields.io/badge/Java-f5f0e8?style=flat-square&logo=openjdk&logoColor=0a0704)
+![](https://img.shields.io/badge/C%23-c9a84c?style=flat-square&logo=sharp&logoColor=0a0704)
+![](https://img.shields.io/badge/JavaScript-1a1208?style=flat-square&logo=javascript&logoColor=f5f0e8)
+![](https://img.shields.io/badge/TypeScript-0a0704?style=flat-square&logo=typescript&logoColor=f5f0e8)
+
+![](https://img.shields.io/badge/SQL-c9a84c?style=flat-square&logo=postgresql&logoColor=0a0704)
+![](https://img.shields.io/badge/Rust-1a1208?style=flat-square&logo=rust&logoColor=f5f0e8)
+![](https://img.shields.io/badge/Go-0a0704?style=flat-square&logo=go&logoColor=f5f0e8)
+![](https://img.shields.io/badge/Kotlin-f5f0e8?style=flat-square&logo=kotlin&logoColor=0a0704)
+![](https://img.shields.io/badge/Swift-c9a84c?style=flat-square&logo=swift&logoColor=0a0704)
+![](https://img.shields.io/badge/Ruby-1a1208?style=flat-square&logo=ruby&logoColor=f5f0e8)
+![](https://img.shields.io/badge/PHP-0a0704?style=flat-square&logo=php&logoColor=f5f0e8)
+![](https://img.shields.io/badge/Scala-f5f0e8?style=flat-square&logo=scala&logoColor=0a0704)
+
+![](https://img.shields.io/badge/Dart-c9a84c?style=flat-square&logo=dart&logoColor=0a0704)
+![](https://img.shields.io/badge/R-1a1208?style=flat-square&logo=r&logoColor=f5f0e8)
+![](https://img.shields.io/badge/MATLAB-0a0704?style=flat-square&logo=mathworks&logoColor=f5f0e8)
+![](https://img.shields.io/badge/Shell-f5f0e8?style=flat-square&logo=gnu-bash&logoColor=0a0704)
+![](https://img.shields.io/badge/PowerShell-c9a84c?style=flat-square&logo=powershell&logoColor=0a0704)
+![](https://img.shields.io/badge/Batch-1a1208?style=flat-square&logo=windows-terminal&logoColor=f5f0e8)
+
+![](https://img.shields.io/badge/Haskell-0a0704?style=flat-square&logo=haskell&logoColor=f5f0e8)
+![](https://img.shields.io/badge/OCaml-f5f0e8?style=flat-square&logo=ocaml&logoColor=0a0704)
+![](https://img.shields.io/badge/Julia-c9a84c?style=flat-square&logo=julia&logoColor=0a0704)
+![](https://img.shields.io/badge/Elixir-1a1208?style=flat-square&logo=elixir&logoColor=f5f0e8)
+![](https://img.shields.io/badge/Erlang-0a0704?style=flat-square&logo=erlang&logoColor=f5f0e8)
+
+</div>
 
 ---
 
