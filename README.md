@@ -321,7 +321,6 @@ ollama pull qwen2.5-coder:3b
 
 # Clone and install
 git clone https://github.com/MuhammadAhmadHamim/rozn.git
-cd rozn
 pip install -e .
 ```
 
